@@ -1,18 +1,3 @@
-mod clear_terminal {
-    #[cfg(not(target_os = "windows"))]
-    pub fn clear_terminal() {
-        std::process::Command::new("clear").status().unwrap();
-    }
-
-    #[cfg(target_os = "windows")]
-    pub fn clear_terminal() {
-        std::process::Command::new("cmd")
-            .args(["/C", "cls"])
-            .status()
-            .unwrap();
-    }
-}
-
 // Project 1: Interactive bill manager
 //
 // Summary:
@@ -44,10 +29,30 @@ mod clear_terminal {
 // * A vector is the easiest way to store the bills at stage 1, but a
 //   hashmap will be easier to work with at stages 2 and 3.
 
+use std::collections::HashMap;
+
+mod clear_terminal {
+    #[cfg(not(target_os = "windows"))]
+    pub fn clear_terminal() {
+        std::process::Command::new("clear").status().unwrap();
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn clear_terminal() {
+        std::process::Command::new("cmd")
+            .args(["/C", "cls"])
+            .status()
+            .unwrap();
+    }
+}
+
 #[derive(Debug)]
 enum Menu {
     AddBills,
     ViewBills,
+    RemoveBills,
+    UpdateBills,
+    Total,
     Invalid,
 }
 impl Menu {
@@ -55,19 +60,75 @@ impl Menu {
         match buffer {
             "add" | "1" => Some(Menu::AddBills),
             "view" | "2" => Some(Menu::ViewBills),
+            "remove" | "3" => Some(Menu::RemoveBills),
+            "update" | "4" => Some(Menu::UpdateBills),
+            "total" | "5" => Some(Menu::Total),
             _ => Some(Menu::Invalid),
         }
     }
 }
 
-enum Sec {
-    First,
-    Second,
-    Begin,
+enum Text {
+    Main,
     View,
-    Instruction,
+    Add,
+    Remove,
+    Update,
+    UpdateBill,
+    UpdateName,
+    UpdateAmount,
+    ViewName,
+    ViewAmount,
+    Instructions,
     Empty,
-    Total,
+}
+impl Text {
+    fn print(text: Text) {
+        match text {
+            Text::Main => {
+                println!("== Manage Bills ==");
+                println!("   1. Add bills");
+                println!("   2. View bills");
+                println!("   3. Remove bills");
+                println!("   4. Update bills");
+                println!("   5. Total bills");
+                println!(" ");
+                println!("Enter selection:");
+            }
+            Text::View => println!("== View Bills =="),
+            Text::Add => println!("== Add Bills =="),
+            Text::Remove => println!("== Remove Bill =="),
+            Text::UpdateBill => println!("== Update Bill =="),
+            Text::Update => println!("Which bill do you want to update?"),
+            Text::UpdateName => println!(" Update Name "),
+            Text::UpdateAmount => println!(" Update Amount "),
+            Text::ViewName => println!("Enter bill name:"),
+            Text::ViewAmount => println!("Enter bill amount:"),
+            Text::Instructions => println!("> Main Menu: 'exit' or 'back'"),
+            Text::Empty => println!(" "),
+        }
+    }
+    fn calc_total(bills: &HashMap<String, f64>) -> f64 {
+        let mut total = 0.00;
+        for value in bills.values() {
+            total += value
+        }
+        let formatted_float = format!("{:.2}", total);
+        let truncated_float: f64 = formatted_float.parse().unwrap();
+        return truncated_float;
+    }
+    fn print_total(arr: &HashMap<String, f64>) {
+        if arr.len() > 0 {
+            println!("Total: €{:?}", Text::calc_total(arr))
+        }
+    }
+    fn print_bills(bills: &HashMap<String, f64>) {
+        let mut i = 0;
+        for (key, value) in bills.iter() {
+            println!("{}. Name: {}, amount: €{}", i + 1, key, value);
+            i += 1;
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -81,55 +142,8 @@ impl Bills {
         Self { name, amount }
     }
     // Add bill to vec!
-    fn add(self, arr: &mut Vec<Bills>) {
-        arr.push(self)
-    }
-    fn total(arr: &Vec<Bills>) -> f64 {
-        let mut total = 0.00;
-        arr.iter().for_each(|bill| total += bill.amount);
-        return total;
-    }
-}
-
-mod print {
-    use crate::*;
-    pub fn main_menu(sec: Sec) {
-        match sec {
-            Sec::Begin => {
-                println!("== Manage Bills ==");
-                println!("   1. Add bills");
-                println!("   2. View bills");
-                // println!("   2. Remove bills");
-                // println!("   2. Update bills");
-                // println!("   5. Total bills");
-                println!(" ");
-                println!("Enter selection:");
-            }
-            _ => println!("Invalid selection"),
-        }
-    }
-
-    pub fn bill_menu(sec: Sec, total: Option<&str>) {
-        match total {
-            Some(total) => print!("Total: {}", total),
-            None => match sec {
-                Sec::Begin => println!("== Add Bills =="),
-                Sec::First => println!("Enter bill name:"),
-                Sec::Second => println!("Enter bill amount:"),
-                Sec::View => println!("== View Bills =="),
-                Sec::Instruction => println!("> Main Menu: 'exit' or 'back'"),
-                Sec::Total => print!("Total: "),
-                Sec::Empty => println!(" "),
-            },
-        }
-    }
-
-    pub fn bills_view(bills: &Vec<Bills>) {
-        if bills.len() > 0 {
-            bills
-                .iter()
-                .for_each(|bill| println!("Name: {:?}, amount: {:?}", bill.name, bill.amount))
-        }
+    fn add(self, bills: &mut HashMap<String, f64>) {
+        bills.insert(self.name, self.amount);
     }
 }
 
@@ -152,7 +166,10 @@ mod user_input {
                 let selection = match Menu::select(&bill_name.1) {
                     Some(Menu::AddBills) => Menu::AddBills,
                     Some(Menu::ViewBills) => Menu::ViewBills,
+                    Some(Menu::RemoveBills) => Menu::RemoveBills,
                     Some(Menu::Invalid) => Menu::Invalid,
+                    Some(Menu::UpdateBills) => Menu::UpdateBills,
+                    Some(Menu::Total) => Menu::Total,
                     None => Menu::Invalid,
                 };
                 return selection;
@@ -208,55 +225,56 @@ mod section {
         pub fn main() {
             // Clear Terminal
             clear_terminal::clear_terminal();
-            print::main_menu(Sec::Begin);
+            Text::print(Text::Main);
         }
     }
     pub mod add_bill {
         use crate::*;
 
-        pub fn bill(bills: &mut Vec<Bills>) {
+        pub fn bill(bills: &mut HashMap<String, f64>) {
             loop {
                 // Clear Terminal
                 clear_terminal::clear_terminal();
 
-                print::bill_menu(Sec::Begin, None);
-                print::bill_menu(Sec::Empty, None);
-                print::bill_menu(Sec::Instruction, None);
-                // print::bill_menu(Sec::Empty, None);
-
                 // Print bills
-                print::bills_view(&bills);
-                print::bill_menu(Sec::Empty, None);
+                Text::print(Text::Add);
+                Text::print(Text::Empty);
+                if bills.len() > 0 {
+                    Text::print_bills(&bills);
+                    Text::print(Text::Empty);
+                }
+                Text::print(Text::Instructions);
+                Text::print(Text::Empty);
+                Text::print(Text::ViewName);
 
-                print::bill_menu(Sec::First, None);
                 let name = user_input::add_bill::input();
                 if name.as_str() == "exit" || name.as_str() == "back" {
                     return;
                 }
-                print::bill_menu(Sec::Second, None);
+                Text::print(Text::ViewAmount);
+
                 let amount = user_input::add_bill::input_float();
 
                 let bill = Bills::new(name, amount);
-                bill.add(bills);
+                Bills::add(bill, bills);
             }
         }
     }
     pub mod view_bill {
         use crate::*;
 
-        pub fn view(bills: &mut Vec<Bills>) {
+        pub fn view(bills: &mut HashMap<String, f64>) {
             // Clear Terminal
             clear_terminal::clear_terminal();
-            // View
-            print::bill_menu(Sec::View, None);
-            print::bills_view(&bills);
-            print::bill_menu(Sec::Empty, None);
-            print::bill_menu(Sec::Total, None);
-            let total = Bills::total(&bills);
-            println!("{:?}", total);
-            print::bill_menu(Sec::Empty, None);
 
-            print::bill_menu(Sec::Instruction, None);
+            // View
+            Text::print(Text::View);
+            Text::print_bills(&bills);
+            Text::print(Text::Empty);
+            Text::print_total(&bills);
+            Text::print(Text::Empty);
+
+            Text::print(Text::Instructions);
 
             loop {
                 let input = user_input::add_bill::input();
@@ -268,11 +286,71 @@ mod section {
             }
         }
     }
+    pub mod remove_bill {
+        use crate::*;
+
+        pub fn remove(bills: &mut HashMap<String, f64>) {
+            loop {
+                // Clear Terminal
+                clear_terminal::clear_terminal();
+
+                Text::print(Text::Remove);
+                Text::print_bills(bills);
+                Text::print(Text::Empty);
+                Text::print_total(bills);
+                Text::print(Text::Empty);
+                Text::print(Text::Instructions);
+
+                let input = user_input::add_bill::input();
+                if input.as_str() == "exit" || input.as_str() == "back" {
+                    return;
+                }
+
+                bills.remove(&input);
+            }
+        }
+    }
+    pub mod update_bill {
+        use crate::*;
+
+        pub fn update(bills: &mut HashMap<String, f64>) {
+            loop {
+                // Clear Terminal and Print Text
+                clear_terminal::clear_terminal();
+                Text::print(Text::UpdateBill);
+                Text::print_bills(bills);
+                Text::print(Text::Empty);
+                Text::print_total(bills);
+                Text::print(Text::Empty);
+                Text::print(Text::Instructions);
+                Text::print(Text::Empty);
+                Text::print(Text::Update);
+
+                // Get user input for the bill name to update
+                let input = user_input::add_bill::input();
+                if input.as_str() == "exit" || input.as_str() == "back" {
+                    return;
+                }
+
+                if bills.contains_key(&input) {
+                    Text::print(Text::UpdateName);
+                    let new_name = user_input::add_bill::input();
+                    Text::print(Text::UpdateAmount);
+                    let new_amount = user_input::add_bill::input_float();
+
+                    bills.remove(&input);
+                    bills.insert(new_name, new_amount);
+                } else {
+                    println!("Bill not found, please try again.");
+                }
+            }
+        }
+    }
 }
 
 fn main() {
     // Create vec! for the bills
-    let mut bills: Vec<Bills> = vec![];
+    let mut hash_bills: HashMap<String, f64> = HashMap::new();
 
     loop {
         // Print main menu to screen
@@ -282,8 +360,12 @@ fn main() {
         let user_input = user_input::main_menu::input();
 
         match user_input {
-            Menu::AddBills => section::add_bill::bill(&mut bills),
-            Menu::ViewBills => section::view_bill::view(&mut bills),
+            Menu::AddBills => section::add_bill::bill(&mut hash_bills),
+            Menu::ViewBills => section::view_bill::view(&mut hash_bills),
+            Menu::RemoveBills => section::remove_bill::remove(&mut hash_bills),
+            Menu::UpdateBills => section::update_bill::update(&mut hash_bills),
+            Menu::Total => section::view_bill::view(&mut hash_bills),
+
             Menu::Invalid => println!("Invalid choice"),
         };
     }
@@ -296,48 +378,26 @@ mod test {
 
     #[test]
     fn check_total() {
-        let mut arr = vec![];
-        let bill1 = Bills {
-            name: "car".to_string(),
-            amount: 50.00,
-        };
-        let bill2 = Bills {
-            name: "car".to_string(),
-            amount: 20.00,
-        };
-        let bill3 = Bills {
-            name: "car".to_string(),
-            amount: 30.00,
-        };
-        arr.push(bill1);
-        arr.push(bill2);
-        arr.push(bill3);
+        let mut arr = HashMap::new();
 
-        let result = Bills::total(&mut arr);
+        arr.insert("car".to_string(), 50.00);
+        arr.insert("phone".to_string(), 20.00);
+        arr.insert("home".to_string(), 30.00);
+
+        let result = Text::calc_total(&mut arr);
         let expected = 100.0;
         assert_eq!(result, expected, "Result should be 100.00")
     }
 
     #[test]
     fn check_total2() {
-        let mut arr = vec![];
-        let bill1 = Bills {
-            name: "car".to_string(),
-            amount: 2917.35,
-        };
-        let bill2 = Bills {
-            name: "car".to_string(),
-            amount: 11.40,
-        };
-        let bill3 = Bills {
-            name: "car".to_string(),
-            amount: 71.25,
-        };
-        arr.push(bill1);
-        arr.push(bill2);
-        arr.push(bill3);
+        let mut arr = HashMap::new();
 
-        let result = Bills::total(&mut arr);
+        arr.insert("car".to_string(), 2917.35);
+        arr.insert("phone".to_string(), 11.40);
+        arr.insert("home".to_string(), 71.25);
+
+        let result = Text::calc_total(&mut arr);
         let expected = 3000.00;
         assert_eq!(result, expected, "Result should be 3000.00")
     }
